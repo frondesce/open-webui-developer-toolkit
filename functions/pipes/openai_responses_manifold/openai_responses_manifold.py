@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.23
+version: 0.8.24
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -900,7 +900,6 @@ class Pipe:
                     if etype == "response.output_item.done":
                         item = event.get("item", {})
                         item_type = item.get("type", "")
-                        item_name = item.get("name", "unnamed_tool")
 
                         # Reasoning is complete: Flush first, then “Done thinking!”  # >>> STREAM-REASONING
                         if item_type == "reasoning":
@@ -965,39 +964,12 @@ class Pipe:
                                     }
                                 )
 
-                        title = f"Running `{item_name}`"
-                        content = ""
-                        if item_type == "function_call":
-                            title = f"🛠️ Running the {item_name} tool…"
-                            arguments = json.loads(item.get("arguments") or "{}")
-                            args_formatted = ", ".join(
-                                f"{k}={json.dumps(v)}" for k, v in arguments.items()
-                            )
-                            content = f"```python\n{item_name}({args_formatted})\n```"
-                        elif item_type == "web_search_call":
-                            title = "🔍 Hmm, let me quickly check online…"
-                            action = item.get("action", {})
-                            if action.get("type") == "search":
-                                query = action.get("query")
-                                title = (
-                                    f"🔍 Searching the web for: `{query}`"
-                                    if query
-                                    else "🔍 Searching the web"
-                                )
-                            elif action.get("type") == "open_page":
-                                title = "🔍 Opening web page…"
-                                url = item.get("url")
-                                if url:
-                                    content = f"URL: `{url}`"
-                        elif item_type == "file_search_call":
-                            title = "📂 Let me skim those files…"
-                        elif item_type == "image_generation_call":
-                            title = "🎨 Let me create that image…"
-                        elif item_type == "local_shell_call":
-                            title = "💻 Let me run that command…"
-                        elif item_type == "mcp_call":
-                            title = "🌐 Let me query the MCP server…"
+                        # message 完成：不渲染工具状态（保持 UI 简洁）
+                        if item_type == "message":
+                            continue
 
+                        # 统一渲染：仅对真正的工具调用展示标题（含中性文案）
+                        title, content = _render_tool_call_title_and_content(item)
                         if title:
                             assistant_message = await status_indicator.add(
                                 assistant_message,
@@ -1197,38 +1169,9 @@ class Pipe:
                             hidden_uid_marker = ""
                         self.logger.debug("Persisted item: %s", hidden_uid_marker)
                         assistant_message += hidden_uid_marker
-                        title = f"Running `{item.get('name', 'unnamed_tool')}`"
-                        content = ""
-                        if item_type == "function_call":
-                            title = f"🛠️ Running the {item.get('name', 'unnamed_tool')} tool…"
-                            arguments = json.loads(item.get("arguments") or "{}")
-                            args_formatted = ", ".join(
-                                f"{k}={json.dumps(v)}" for k, v in arguments.items()
-                            )
-                            content = f"```python\n{item.get('name', 'unnamed_tool')}({args_formatted})\n```"
-                        elif item_type == "web_search_call":
-                            title = "🔍 Hmm, let me quickly check online…"
-                            action = item.get("action", {})
-                            if action.get("type") == "search":
-                                query = action.get("query")
-                                title = (
-                                    f"🔍 Searching the web for: `{query}`"
-                                    if query
-                                    else "🔍 Searching the web"
-                                )
-                            elif action.get("type") == "open_page":
-                                title = "🔍 Opening web page…"
-                                url = item.get("url")
-                                if url:
-                                    content = f"URL: `{url}`"
-                        elif item_type == "file_search_call":
-                            title = "📂 Let me skim those files…"
-                        elif item_type == "image_generation_call":
-                            title = "🎨 Let me create that image…"
-                        elif item_type == "local_shell_call":
-                            title = "💻 Let me run that command…"
-                        elif item_type == "mcp_call":
-                            title = "🌐 Let me query the MCP server…"
+
+                        # 统一渲染：只有真正的工具调用才显示（含中性文案）
+                        title, content = _render_tool_call_title_and_content(item)
                         if title:
                             assistant_message = await status_indicator.add(
                                 assistant_message,
@@ -1962,3 +1905,92 @@ def fetch_openai_response_items(
                 continue
         lookup[item_id] = item.get("payload", {})
     return lookup
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Tool-call Rendering Helpers (neutral copy; only when a real call happens)
+# ─────────────────────────────────────────────────────────────────────────────
+def _is_tool_call_item(item: Dict[str, Any]) -> bool:
+    """Return True if this output item is a tool call (function_call or *_call)."""
+    if not isinstance(item, dict):
+        return False
+    t = (item.get("type") or "").strip()
+    if not t:
+        return False
+    if t == "function_call":
+        return True
+    if t in {"message", "reasoning"}:
+        return False
+    # treat any future *_call as a tool call (web_search_call, file_search_call,
+    # image_generation_call, local_shell_call, mcp_call, code_interpreter_call, etc.)
+    return t.endswith("_call")
+
+
+def _render_tool_call_title_and_content(item: Dict[str, Any]) -> tuple[str, str]:
+    """
+    Return (title, content) for known/unknown tool-call types.
+    If the item is not a tool call or must be skipped, return ("", "").
+    Uses neutral copy when name is missing (configurable).
+    """
+    if not _is_tool_call_item(item):
+        return "", ""
+
+    item_type = item.get("type", "")
+    item_name = item.get("name")  # never default to 'unnamed_tool'
+    title = ""
+    content = ""
+
+    # ---- known types with friendly titles (do not depend on item_name) ----
+    if item_type == "web_search_call":
+        title = "🔍 Hmm, let me quickly check online…"
+        action = item.get("action", {}) or {}
+        if action.get("type") == "search":
+            q = action.get("query")
+            title = f"🔍 Searching the web for: `{q}`" if q else "🔍 Searching the web"
+        elif action.get("type") == "open_page":
+            title = "🔍 Opening web page…"
+            url = item.get("url")
+            if url:
+                content = f"URL: `{url}`"
+        return title, content
+
+    if item_type == "file_search_call":
+        return "📂 Let me skim those files…", ""
+
+    if item_type == "image_generation_call":
+        return "🎨 Let me create that image…", ""
+
+    if item_type == "local_shell_call":
+        return "💻 Let me run that command…", ""
+
+    if item_type == "mcp_call":
+        return "🌐 Let me query the MCP server…", ""
+
+    if item_type == "code_interpreter_call":
+        return "🧮 Running Code Interpreter…", ""
+
+    # ---- function_call (may need item_name) ----
+    if item_type == "function_call":
+        try:
+            args = json.loads(item.get("arguments") or "{}")
+        except Exception:
+            args = {}
+        args_formatted = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items())
+
+        if item_name:
+            title = f"🛠️ Running the {item_name} tool…"
+            call_name_for_code = item_name
+        else:
+            title = "🛠️ Running a tool…"
+            call_name_for_code = "tool"
+
+        content = f"```python\n{call_name_for_code}({args_formatted})\n```"
+        return title, content
+
+    # ---- future *_call types, not explicitly handled above ----
+    if item_type.endswith("_call"):
+        if item_name:
+            return f"🛠️ Running the {item_name}…", ""
+        else:
+            return ("🛠️ Running a tool…", "")
+
+    return "", ""
