@@ -492,6 +492,18 @@ class Pipe:
             description="Max outer execution loops.",
         )
 
+        # Tool execution safety
+        TOOL_CALL_TIMEOUT: Optional[float] = Field(
+            default=30.0,
+            description="Per tool call timeout in seconds (None or <=0 disables).",
+        )
+        MAX_TOOL_CONCURRENCY: Optional[int] = Field(
+            default=4,
+            description=(
+                "Max concurrent tool calls per turn (1 when PARALLEL_TOOL_CALLS is False; None/<=0 means unlimited)."
+            ),
+        )
+
         # Tools/Search (Group 3)
         ENABLE_WEB_SEARCH_TOOL: bool = Field(
             default=False,
@@ -1013,7 +1025,19 @@ class Pipe:
                     i for i in final_response["output"] if i["type"] == "function_call"
                 ]
                 if calls:
-                    function_outputs = await self._execute_function_calls(calls, tools)
+                    # Compute concurrency/timeout based on valves
+                    max_conc = (
+                        1
+                        if not valves.PARALLEL_TOOL_CALLS
+                        else (valves.MAX_TOOL_CONCURRENCY or None)
+                    )
+                    to_secs = valves.TOOL_CALL_TIMEOUT or None
+                    function_outputs = await self._execute_function_calls(
+                        calls,
+                        tools,
+                        timeout=to_secs if (to_secs and to_secs > 0) else None,
+                        max_concurrency=max_conc if (max_conc and max_conc > 0) else None,
+                    )
                     if valves.PERSIST_TOOL_RESULTS:
                         hidden_uid_marker = persist_openai_response_items(
                             metadata.get("chat_id"),
@@ -1194,7 +1218,18 @@ class Pipe:
 
                 calls = [i for i in items if i.get("type") == "function_call"]
                 if calls:
-                    function_outputs = await self._execute_function_calls(calls, tools)
+                    max_conc = (
+                        1
+                        if not valves.PARALLEL_TOOL_CALLS
+                        else (valves.MAX_TOOL_CONCURRENCY or None)
+                    )
+                    to_secs = valves.TOOL_CALL_TIMEOUT or None
+                    function_outputs = await self._execute_function_calls(
+                        calls,
+                        tools,
+                        timeout=to_secs if (to_secs and to_secs > 0) else None,
+                        max_concurrency=max_conc if (max_conc and max_conc > 0) else None,
+                    )
                     if valves.PERSIST_TOOL_RESULTS:
                         hidden_uid_marker = persist_openai_response_items(
                             metadata.get("chat_id"),
@@ -1459,29 +1494,78 @@ class Pipe:
     # 4.6 Tool Execution
     @staticmethod
     async def _execute_function_calls(
-        calls: list[dict], tools: dict[str, dict[str, Any]]
+        calls: list[dict],
+        tools: dict[str, dict[str, Any]],
+        *,
+        timeout: float | None = None,
+        max_concurrency: int | None = None,
     ) -> list[dict]:
-        def _make_task(call):
-            tool_cfg = tools.get(call["name"])
-            if not tool_cfg:
-                return asyncio.sleep(0, result="Tool not found")
-            fn = tool_cfg["callable"]
-            args = json.loads(call["arguments"])
-            if inspect.iscoroutinefunction(fn):
-                return fn(**args)
-            else:
-                return asyncio.to_thread(fn, **args)
+        """Execute tool/function calls with timeout and optional concurrency limits.
 
-        tasks = [_make_task(call) for call in calls]
-        results = await asyncio.gather(*tasks)
-        return [
-            {
+        - Each call runs independently; JSON arg parse and execution errors are captured and
+          returned as text in the output field so one bad call doesn't break the loop.
+        - timeout: seconds (None or <=0 means no timeout).
+        - max_concurrency: limits concurrent executions (None or <=0 means unlimited).
+        """
+
+        semaphore: asyncio.Semaphore | None = (
+            asyncio.Semaphore(max_concurrency)
+            if (isinstance(max_concurrency, int) and max_concurrency > 0)
+            else None
+        )
+
+        async def run_single(call: dict) -> dict:
+            async def _execute() -> Any:
+                tool_cfg = tools.get(call.get("name"))
+                if not tool_cfg:
+                    return "Tool not found"
+                fn = tool_cfg.get("callable")
+                if fn is None:
+                    return "Tool callable missing"
+                # Parse args defensively
+                raw_args = call.get("arguments", {})
+                if isinstance(raw_args, dict):
+                    args = raw_args
+                elif raw_args is None:
+                    args = {}
+                elif isinstance(raw_args, (str, bytes, bytearray)):
+                    try:
+                        if isinstance(raw_args, (bytes, bytearray)):
+                            raw_args = raw_args.decode("utf-8", errors="replace")
+                        args = json.loads(raw_args or "{}")
+                    except Exception as exc:
+                        return f"Invalid JSON arguments: {exc}"
+                else:
+                    return (
+                        f"Invalid arguments type: {type(raw_args).__name__}; expected dict or JSON string"
+                    )
+                try:
+                    if inspect.iscoroutinefunction(fn):
+                        coro = fn(**args)
+                    else:
+                        coro = asyncio.to_thread(fn, **args)
+                    if timeout and timeout > 0:
+                        return await asyncio.wait_for(coro, timeout=timeout)
+                    else:
+                        return await coro
+                except asyncio.TimeoutError:
+                    return f"Tool execution timed out after {timeout} seconds"
+                except Exception as exc:
+                    return f"Tool execution failed: {type(exc).__name__}: {exc}"
+
+            if semaphore is None:
+                result = await _execute()
+            else:
+                async with semaphore:
+                    result = await _execute()
+            return {
                 "type": "function_call_output",
-                "call_id": call["call_id"],
+                "call_id": call.get("call_id"),
                 "output": str(result),
             }
-            for call, result in zip(calls, results)
-        ]
+
+        tasks = [asyncio.create_task(run_single(call)) for call in calls]
+        return await asyncio.gather(*tasks)
 
     # 4.7 Emitters
     async def _emit_error(
