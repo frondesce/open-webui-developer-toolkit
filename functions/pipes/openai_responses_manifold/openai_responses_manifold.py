@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.24
+version: 0.8.29
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -1796,7 +1796,7 @@ class ExpandableStatusIndicator:
     async def _render(self, assistant_message: str, emit: bool) -> str:
         block = self._render_status_block()
         full_msg = (
-            self._BLOCK_RE.sub(block, assistant_message, 1)
+            self._BLOCK_RE.sub(lambda _: block, assistant_message, 1)
             if self._BLOCK_RE.search(assistant_message)
             else f"{block}{assistant_message}"
         )
