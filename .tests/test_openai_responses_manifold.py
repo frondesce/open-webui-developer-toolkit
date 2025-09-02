@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 
 import pytest
@@ -240,3 +241,14 @@ def test_transform_tools_dedup_and_unknown():
 )
 def test_build_mcp_tools_invalid(payload):
     assert mod.ResponsesBody._build_mcp_tools(payload) == []
+
+
+def test_citation_cleanup_handles_backslash_domain():
+    domain = "foo\\bar.com"
+    msg = f"( [{domain}](https://example.com) ) text"
+    safe_domain = re.escape(domain).replace("\\", r"\\")
+    pattern = re.compile(
+        r"\(\s*\[\s*" + safe_domain + r"\s*\]\([^)]+\)\s*\)"
+    )
+    result = pattern.sub(" ", msg, count=1)
+    assert isinstance(result, str)

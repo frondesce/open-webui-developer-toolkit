@@ -879,11 +879,12 @@ class Pipe:
                             )
                             emitted_citations.append(citation_payload)
                         assistant_message += f" [{citation_number}]"
-                        assistant_message = re.sub(
-                            rf"\(\s*\[\s*{re.escape(domain)}\s*\]\([^)]+\)\s*\)",
-                            " ",
-                            assistant_message,
-                            count=1,
+                        safe_domain = re.escape(domain).replace("\\", r"\\")
+                        pattern = re.compile(
+                            r"\(\s*\[\s*" + safe_domain + r"\s*\]\([^)]+\)\s*\)"
+                        )
+                        assistant_message = pattern.sub(
+                            " ", assistant_message, count=1
                         ).strip()
                         await event_emitter(
                             {
