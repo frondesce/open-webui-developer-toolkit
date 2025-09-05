@@ -5,6 +5,10 @@ All notable changes to the OpenAI Responses Manifold pipeline are documented in 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.30] - 2025-09-05
+- Logged empty or unexpected messages when transforming inputs.
+- Raised an error when no user content is found before contacting the OpenAI API.
+
 ## [0.8.29] - 2025-09-02
 - Guarded status block replacement with a callable to avoid backslash escapes.
 - Added tool execution safety with timeout and concurrency limits.

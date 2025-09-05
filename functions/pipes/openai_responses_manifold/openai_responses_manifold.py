@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.29
+version: 0.8.30
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -307,7 +307,7 @@ class ResponsesBody(BaseModel):
             )
 
         openai_input: list[dict] = []
-        for msg in messages:
+        for idx, msg in enumerate(messages):
             role = msg.get("role")
             raw_content = msg.get("content", "")
             if role == "system":
@@ -327,20 +327,24 @@ class ResponsesBody(BaseModel):
                         "file_id": b.get("file_id"),
                     },
                 }
-                openai_input.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            block_transform.get(block.get("type"), lambda b: b)(block)
-                            for block in content_blocks
-                            if block
-                        ],
-                    }
-                )
+                blocks = [
+                    block_transform.get(block.get("type"), lambda b: b)(block)
+                    for block in content_blocks
+                    if block
+                ]
+                if not blocks:
+                    logging.warning(
+                        "Empty user message at index %s (chat_id=%s)", idx, chat_id
+                    )
+                openai_input.append({"role": "user", "content": blocks})
                 continue
             if role == "developer":
                 openai_input.append({"role": "developer", "content": raw_content})
                 continue
+            if role != "assistant":
+                logging.warning(
+                    "Unexpected role '%s' at index %s (chat_id=%s)", role, idx, chat_id
+                )
             if "<details" in raw_content or "![" in raw_content:
                 content = DETAILS_RE.sub("", raw_content).strip()
             else:
@@ -376,6 +380,12 @@ class ResponsesBody(BaseModel):
                             "content": [{"type": "output_text", "text": content}],
                         }
                     )
+        if not openai_input:
+            logging.warning(
+                "transform_messages_to_input produced empty input (chat_id=%s, model=%s)",
+                chat_id,
+                openwebui_model_id,
+            )
         return openai_input
 
     @classmethod
@@ -430,11 +440,14 @@ class ResponsesBody(BaseModel):
             sanitized_params["instructions"] = instructions
         if "messages" in completions_dict:
             sanitized_params.pop("messages", None)
-            sanitized_params["input"] = ResponsesBody.transform_messages_to_input(
+            transformed_input = ResponsesBody.transform_messages_to_input(
                 completions_dict.get("messages", []),
                 chat_id=chat_id,
                 openwebui_model_id=openwebui_model_id,
             )
+            if not transformed_input:
+                raise ValueError("No user content found in messages.")
+            sanitized_params["input"] = transformed_input
         return ResponsesBody(
             **sanitized_params,
             **extra_params,
@@ -587,24 +600,30 @@ class Pipe:
         )
 
         completions_body = CompletionsBody.model_validate(body)
-        responses_body = ResponsesBody.from_completions(
-            completions_body=completions_body,
-            **(
-                {"chat_id": __metadata__["chat_id"]}
-                if __metadata__.get("chat_id")
-                else {}
-            ),
-            **(
-                {"openwebui_model_id": openwebui_model_id} if openwebui_model_id else {}
-            ),
-            truncation=valves.TRUNCATION,
-            user=user_identifier,
-            **(
-                {"max_tool_calls": valves.MAX_TOOL_CALLS}
-                if valves.MAX_TOOL_CALLS is not None
-                else {}
-            ),
-        )
+        try:
+            responses_body = ResponsesBody.from_completions(
+                completions_body=completions_body,
+                **(
+                    {"chat_id": __metadata__["chat_id"]}
+                    if __metadata__.get("chat_id")
+                    else {}
+                ),
+                **(
+                    {"openwebui_model_id": openwebui_model_id}
+                    if openwebui_model_id
+                    else {}
+                ),
+                truncation=valves.TRUNCATION,
+                user=user_identifier,
+                **(
+                    {"max_tool_calls": valves.MAX_TOOL_CALLS}
+                    if valves.MAX_TOOL_CALLS is not None
+                    else {}
+                ),
+            )
+        except ValueError as e:
+            await self._emit_error(__event_emitter__, e)
+            return
 
         # Normalized model family name: remove date; gpt-5-* → gpt-5 # >>> GPT-5
         model_family = re.sub(r"-\d{4}-\d{2}-\d{2}$", "", responses_body.model)
