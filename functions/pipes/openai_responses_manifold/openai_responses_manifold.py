@@ -1009,6 +1009,15 @@ class Pipe:
                         "No final response received from OpenAI Responses API."
                     )
 
+                if final_response.get("status") == "incomplete":
+                    reason = final_response.get("incomplete_details", {}).get("reason")
+                    if reason == "content_filter":
+                        status_indicator._done = True
+                        await self._emit_error(
+                            event_emitter, "Request was blocked by content filter", done=True
+                        )
+                        return ""
+
                 usage = final_response.get("usage", {})
                 if usage:
                     usage["turn_count"] = 1
@@ -1145,7 +1154,7 @@ class Pipe:
                     if reason == "content_filter":
                         status_indicator._done = True
                         await self._emit_error(
-                            event_emitter, "请求被内容过滤", done=True
+                            event_emitter, "Request was blocked by content filter", done=True
                         )
                         return ""
 

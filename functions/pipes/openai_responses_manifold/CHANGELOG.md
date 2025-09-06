@@ -6,7 +6,7 @@ All notable changes to the OpenAI Responses Manifold pipeline are documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.8.30] - 2025-09-06
-- Handled content-filtered responses by emitting an error and stopping processing.
+- Handled content-filtered responses in streaming and non-streaming flows by emitting an error and stopping processing.
 
 ## [0.8.29] - 2025-09-02
 - Guarded status block replacement with a callable to avoid backslash escapes.
