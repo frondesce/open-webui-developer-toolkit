@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.29
+version: 0.8.30
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -743,7 +743,6 @@ class Pipe:
         emitted_citations: list[dict] = []
 
         status_indicator = ExpandableStatusIndicator(event_emitter)
-        status_indicator._done = False
 
         model_family = re.sub(r"-\d{4}-\d{2}-\d{2}$", "", body.model)
         if body.model.startswith("gpt-5"):
@@ -1008,6 +1007,18 @@ class Pipe:
                     raise ValueError(
                         "No final response received from OpenAI Responses API."
                     )
+                reason = (final_response.get("status") or {}).get("reason")
+                if reason == "content_filter":
+                    if not status_indicator._done and status_indicator._items:
+                        assistant_message = await status_indicator.finish(
+                            assistant_message, emit=True
+                        )
+                    await self._emit_error(
+                        event_emitter,
+                        "Response was filtered due to content policy.",
+                        done=True,
+                    )
+                    return assistant_message
 
                 usage = final_response.get("usage", {})
                 if usage:
@@ -1116,7 +1127,6 @@ class Pipe:
         reasoning_map: dict[int, str] = {}
 
         status_indicator = ExpandableStatusIndicator(event_emitter)
-        status_indicator._done = False
 
         model_family = re.sub(r"-\d{4}-\d{2}-\d{2}$", "", body.model)
         if body.model.startswith("gpt-5"):
@@ -1139,6 +1149,18 @@ class Pipe:
                     base_url=valves.BASE_URL,
                     valves=valves,
                 )
+                reason = (response.get("status") or {}).get("reason")
+                if reason == "content_filter":
+                    if not status_indicator._done and status_indicator._items:
+                        assistant_message = await status_indicator.finish(
+                            assistant_message, emit=True
+                        )
+                    await self._emit_error(
+                        event_emitter,
+                        "Response was filtered due to content policy.",
+                        done=True,
+                    )
+                    return assistant_message
 
                 items = response.get("output", [])
 
