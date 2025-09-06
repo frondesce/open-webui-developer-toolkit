@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.29
+version: 0.8.30
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -764,6 +764,7 @@ class Pipe:
         _EMIT_INTERVAL = 0.35  # ≥350ms refresh once
         _EMIT_MIN_CHARS = 80  # Add ≥80 characters and refresh again
         self._last_rendered_summary = ""  # Record rendered merged
+        errored = False
 
         try:
             for loop_idx in range(valves.MAX_FUNCTION_CALL_LOOPS):
@@ -1066,6 +1067,7 @@ class Pipe:
                     break
 
         except Exception as e:  # pragma: no cover
+            errored = True
             await self._emit_error(
                 event_emitter,
                 f"Error: {str(e)}",
@@ -1088,7 +1090,10 @@ class Pipe:
                         )
 
             await self._emit_completion(
-                event_emitter, content="", usage=total_usage, done=True
+                event_emitter,
+                content="",
+                usage=total_usage,
+                done=not errored,
             )
             logs_by_msg_id.clear()
             SessionLogger.logs.pop(SessionLogger.session_id.get(), None)
