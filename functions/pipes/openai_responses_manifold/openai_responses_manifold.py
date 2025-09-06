@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.29
+version: 0.8.30
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -1139,6 +1139,15 @@ class Pipe:
                     base_url=valves.BASE_URL,
                     valves=valves,
                 )
+
+                if response.get("status") == "incomplete":
+                    reason = response.get("incomplete_details", {}).get("reason")
+                    if reason == "content_filter":
+                        status_indicator._done = True
+                        await self._emit_error(
+                            event_emitter, "请求被内容过滤", done=True
+                        )
+                        return ""
 
                 items = response.get("output", [])
 
