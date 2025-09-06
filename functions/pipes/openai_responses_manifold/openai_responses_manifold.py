@@ -1152,7 +1152,8 @@ class Pipe:
                 if response.get("status") == "incomplete":
                     reason = response.get("incomplete_details", {}).get("reason")
                     if reason == "content_filter":
-                        status_indicator._done = True
+                        if status_indicator._items:
+                            await status_indicator.finish(assistant_message)
                         await self._emit_error(
                             event_emitter, "Request was blocked by content filter", done=True
                         )
