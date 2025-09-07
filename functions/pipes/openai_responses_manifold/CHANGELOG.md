@@ -5,6 +5,12 @@ All notable changes to the OpenAI Responses Manifold pipeline are documented in 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.30] - 2025-09-06
+- Checked `status` and `incomplete_details` to surface OpenAI content-filter errors.
+- Finalized status indicators via `finish()` before emitting errors.
+- Added `errored` flag so completion events omit `done=true` after failures.
+- Skipped final completion emission when errors occur and consolidated streaming loop return path.
+
 ## [0.8.29] - 2025-09-02
 - Guarded status block replacement with a callable to avoid backslash escapes.
 - Added tool execution safety with timeout and concurrency limits.

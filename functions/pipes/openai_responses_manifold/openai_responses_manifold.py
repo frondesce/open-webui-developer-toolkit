@@ -5,7 +5,7 @@ author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.29
+version: 0.8.30
 description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
@@ -765,6 +765,7 @@ class Pipe:
         _EMIT_MIN_CHARS = 80  # Add ≥80 characters and refresh again
         self._last_rendered_summary = ""  # Record rendered merged
 
+        errored = False
         try:
             for loop_idx in range(valves.MAX_FUNCTION_CALL_LOOPS):
                 final_response: dict[str, Any] | None = None
@@ -977,11 +978,11 @@ class Pipe:
                                     }
                                 )
 
-                        # message 完成：不渲染工具状态（保持 UI 简洁）
+                        # message completed: do not render tool status
                         if item_type == "message":
                             continue
 
-                        # 统一渲染：仅对真正的工具调用展示标题（含中性文案）
+                        # Unified Rendering: Show title only for real tool calls
                         title, content = _render_tool_call_title_and_content(item)
                         if title:
                             assistant_message = await status_indicator.add(
@@ -1008,6 +1009,21 @@ class Pipe:
                     raise ValueError(
                         "No final response received from OpenAI Responses API."
                     )
+
+                if final_response.get("status") == "incomplete":
+                    reason = final_response.get("incomplete_details", {}).get("reason")
+                    if reason == "content_filter":
+                        if not status_indicator._done and status_indicator._items:
+                            assistant_message = await status_indicator.finish(assistant_message)
+                        errored = True
+                        await self._emit_error(
+                            event_emitter,
+                            "Request content was filtered and could not be processed.",
+                            show_error_message=True,
+                            show_error_log_citation=False,
+                            done=True,
+                        )
+                        break
 
                 usage = final_response.get("usage", {})
                 if usage:
@@ -1066,6 +1082,7 @@ class Pipe:
                     break
 
         except Exception as e:  # pragma: no cover
+            errored = True
             await self._emit_error(
                 event_emitter,
                 f"Error: {str(e)}",
@@ -1087,9 +1104,10 @@ class Pipe:
                             event_emitter, "\n".join(logs), "Logs"
                         )
 
-            await self._emit_completion(
-                event_emitter, content="", usage=total_usage, done=True
-            )
+            if not errored:
+                await self._emit_completion(
+                    event_emitter, content="", usage=total_usage, done=True
+                )
             logs_by_msg_id.clear()
             SessionLogger.logs.pop(SessionLogger.session_id.get(), None)
 
@@ -1131,6 +1149,7 @@ class Pipe:
                 ),
             )
 
+        errored = False
         try:
             for loop_idx in range(valves.MAX_FUNCTION_CALL_LOOPS):
                 response = await self.send_openai_responses_nonstreaming_request(
@@ -1139,6 +1158,21 @@ class Pipe:
                     base_url=valves.BASE_URL,
                     valves=valves,
                 )
+
+                if response.get("status") == "incomplete":
+                    reason = response.get("incomplete_details", {}).get("reason")
+                    if reason == "content_filter":
+                        if not status_indicator._done and status_indicator._items:
+                            assistant_message = await status_indicator.finish(assistant_message)
+                        errored = True
+                        await self._emit_error(
+                            event_emitter,
+                            "Request content was filtered and could not be processed.",
+                            show_error_message=True,
+                            show_error_log_citation=False,
+                            done=True,
+                        )
+                        break
 
                 items = response.get("output", [])
 
@@ -1256,6 +1290,7 @@ class Pipe:
             return final_text
 
         except Exception as e:  # pragma: no cover
+            errored = True
             await self._emit_error(
                 event_emitter,
                 e,
@@ -1266,6 +1301,10 @@ class Pipe:
         finally:
             if not status_indicator._done and status_indicator._items:
                 assistant_message = await status_indicator.finish(assistant_message)
+            if not errored:
+                await self._emit_completion(
+                    event_emitter, content="", usage=total_usage, done=True
+                )
             logs_by_msg_id.clear()
             SessionLogger.logs.pop(SessionLogger.session_id.get(), None)
 
