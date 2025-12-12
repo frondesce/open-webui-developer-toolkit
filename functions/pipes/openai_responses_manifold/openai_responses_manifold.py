@@ -129,6 +129,42 @@ DETAILS_RE = re.compile(
 )
 
 
+class APIException(Exception):
+    """HTTP error wrapper that surfaces upstream error messages when present."""
+
+    def __init__(
+        self,
+        status: int,
+        content: str,
+        *,
+        url: str | None = None,
+        headers: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__()
+        self.status = status
+        self.content = content or ""
+        self.url = url
+        self.headers = headers
+
+    def __str__(self) -> str:  # pragma: no cover - defensive parsing only
+        try:
+            data = json.loads(self.content)
+            if isinstance(data, dict):
+                err = data.get("error") or {}
+                if isinstance(err, dict):
+                    msg = err.get("message") or err.get("error") or ""
+                    if msg:
+                        return msg
+        except Exception:
+            pass
+        snippet = (self.content or "").strip().replace("\n", " ")
+        snippet = snippet[:500] + ("..." if len(snippet) > 500 else "")
+        prefix = f"HTTP {self.status}"
+        if self.url:
+            prefix += f" ({self.url})"
+        return f"{prefix}: {snippet}" if snippet else prefix
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Data Models
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,12 +329,13 @@ class ResponsesBody(BaseModel):
         required_item_ids: set[str] = set()
         if chat_id and openwebui_model_id:
             for m in messages:
+                content_val = m.get("content")
                 if (
                     m.get("role") == "assistant"
-                    and m.get("content")
-                    and contains_marker(m["content"])
+                    and isinstance(content_val, str)
+                    and contains_marker(content_val)
                 ):
-                    for mk in extract_markers(m["content"], parsed=True):
+                    for mk in extract_markers(content_val, parsed=True):
                         required_item_ids.add(mk["ulid"])
         items_lookup: dict[str, dict] = {}
         if chat_id and openwebui_model_id and required_item_ids:
@@ -310,6 +347,11 @@ class ResponsesBody(BaseModel):
         for msg in messages:
             role = msg.get("role")
             raw_content = msg.get("content", "")
+            if role in {"assistant", "developer"} and not isinstance(raw_content, str):
+                try:
+                    raw_content = json.dumps(raw_content, ensure_ascii=False)
+                except Exception:
+                    raw_content = str(raw_content)
             if role == "system":
                 continue
             if role == "user":
@@ -404,6 +446,7 @@ class ResponsesBody(BaseModel):
             "functions",
             "reasoning_effort",
             "max_tokens",
+            "max_completion_tokens",
         }
         sanitized_params = {}
         for key, value in completions_dict.items():
@@ -411,8 +454,11 @@ class ResponsesBody(BaseModel):
                 logging.warning(f"Dropping unsupported parameter: '{key}'")
             else:
                 sanitized_params[key] = value
-        if "max_tokens" in completions_dict:
-            sanitized_params["max_output_tokens"] = completions_dict["max_tokens"]
+        if "max_output_tokens" not in sanitized_params:
+            if "max_completion_tokens" in completions_dict:
+                sanitized_params["max_output_tokens"] = completions_dict["max_completion_tokens"]
+            elif "max_tokens" in completions_dict:
+                sanitized_params["max_output_tokens"] = completions_dict["max_tokens"]
         effort = completions_dict.get("reasoning_effort")
         if effort:
             reasoning = sanitized_params.get("reasoning", {})
@@ -1364,12 +1410,11 @@ class Pipe:
                             resp.status,
                             body_text[:800],
                         )
-                        raise aiohttp.ClientResponseError(
-                            resp.request_info,
-                            resp.history,
+                        raise APIException(
                             status=resp.status,
-                            message=body_text,
-                            headers=resp.headers,
+                            content=body_text,
+                            url=str(resp.url),
+                            headers=dict(resp.headers),
                         )
                     async for chunk in resp.content.iter_chunked(4096):
                         buf.extend(chunk)
@@ -1393,9 +1438,10 @@ class Pipe:
                         if start_idx > 0:
                             del buf[:start_idx]
                     return
-            except aiohttp.ClientResponseError as cre:
+            except (APIException, aiohttp.ClientResponseError) as cre:
                 last_error = cre
-                if cre.status == 400:
+                status = cre.status if hasattr(cre, "status") else None
+                if status == 400:
                     continue
                 raise
         if last_error:
@@ -1430,17 +1476,17 @@ class Pipe:
                             resp.status,
                             body_text[:800],
                         )
-                        raise aiohttp.ClientResponseError(
-                            resp.request_info,
-                            resp.history,
+                        raise APIException(
                             status=resp.status,
-                            message=body_text,
-                            headers=resp.headers,
+                            content=body_text,
+                            url=str(resp.url),
+                            headers=dict(resp.headers),
                         )
                     return await resp.json()
-            except aiohttp.ClientResponseError as cre:
+            except (APIException, aiohttp.ClientResponseError) as cre:
                 last_error = cre
-                if cre.status == 400:
+                status = cre.status if hasattr(cre, "status") else None
+                if status == 400:
                     continue
                 raise
         if last_error:
@@ -1617,8 +1663,20 @@ class Pipe:
         show_error_log_citation: bool = False,
         done: bool = False,
     ) -> None:
-        error_message = str(error_obj)
-        self.logger.error("Error: %s", error_message)
+        if isinstance(error_obj, APIException):
+            error_message = str(error_obj)
+            self.logger.error(
+                "Upstream API error (%s): %s",
+                error_obj.status,
+                error_message,
+            )
+            if error_obj.content:
+                self.logger.debug(
+                    "Upstream response body: %s", error_obj.content[:800]
+                )
+        else:
+            error_message = str(error_obj)
+            self.logger.error("Error: %s", error_message)
         if show_error_message and event_emitter:
             await event_emitter(
                 {
