@@ -40,9 +40,9 @@ This project started as an internal tool (200+ hours of optimization and testing
      https://github.com/jrkropp/open-webui-developer-toolkit/blob/alpha-preview/functions/pipes/openai_responses_manifold/openai_responses_manifold.py
      ```
 
-3. **⚠️ Important: Set the Function ID to `openai_responses`.**
+3. **⚠️ Important: Keep the Function ID as `openai_responses` (default).**
    
-   This value is currently hardcoded in the pipe and must match exactly. It will become configurable in a future release.
+   This value is hardcoded in the pipe and must match exactly. The import should prefill it correctly; just don’t change it.
    
    <img width="800" alt="image" src="https://github.com/user-attachments/assets/ffd3dd72-cf39-43fa-be36-56c6ac41477d" />
 

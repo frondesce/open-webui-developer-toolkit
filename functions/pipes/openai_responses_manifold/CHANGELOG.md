@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [0.8.31] - 2025-12-12
 - Added GPT-5.1 and GPT-5.2 to supported Responses feature sets.
+- Defaulted Function ID to `openai_responses` to match hardcoded dependencies.
 - Improved upstream error readability with centralized `APIException`.
 - Mapped `max_completion_tokens` to `max_output_tokens` and hardened message transformation for non-string assistant/developer content.
 

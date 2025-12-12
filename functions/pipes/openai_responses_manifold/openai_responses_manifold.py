@@ -1,6 +1,6 @@
 """
 title: OpenAI Responses API Manifold
-id: response_api_for_openai
+id: openai_responses
 author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
