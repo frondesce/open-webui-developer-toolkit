@@ -1,12 +1,12 @@
 """
-title: OpenAI Responses API Manifold — GPT-5 Enhanced
-id: response_api_for_gpt5
+title: OpenAI Responses API Manifold
+id: response_api_for_openai
 author: Justin Kropp (original), frondesce (community mod)
 contributors: GPT-5 Thinking (AI assistance)
 source: https://github.com/jrkropp/open-webui-developer-toolkit
 license: MIT
-version: 0.8.30
-description: Adds GPT-5 Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
+version: 0.8.31
+description: Adds Responses API support (text.verbosity, reasoning.effort), streaming reasoning summary with throttling, “Thinking → 🧠”, and SSE fallback. Unofficial; credits retained.
 """
 
 from __future__ import annotations
@@ -62,8 +62,10 @@ FEATURE_SUPPORT = {
         "o4-mini",
         "o3-deep-research",
         "o4-mini-deep-research",
-        # >>> GPT-5
+        # >>> GPT-5 family
         "gpt-5",
+        "gpt-5.1",
+        "gpt-5.2",
         "gpt-5-mini",
     },
     "image_gen_tool": {
@@ -73,8 +75,10 @@ FEATURE_SUPPORT = {
         "gpt-4o-mini",
         "gpt-4.1-nano",
         "o3",
-        # >>> GPT-5
+        # >>> GPT-5 family
         "gpt-5",
+        "gpt-5.1",
+        "gpt-5.2",
         "gpt-5-mini",
     },
     "function_calling": {
@@ -89,8 +93,10 @@ FEATURE_SUPPORT = {
         "o3-pro",
         "o3-deep-research",
         "o4-mini-deep-research",
-        # >>> GPT-5
+        # >>> GPT-5 family
         "gpt-5",
+        "gpt-5.1",
+        "gpt-5.2",
         "gpt-5-mini",
     },
     "reasoning": {
@@ -100,8 +106,10 @@ FEATURE_SUPPORT = {
         "o3-pro",
         "o3-deep-research",
         "o4-mini-deep-research",
-        # >>> GPT-5：Used to display the "Thinking..." status (whether there is a summary depends on the valve and upstream)
+        # >>> GPT-5 family：Used to display the "Thinking..." status (whether there is a summary depends on the valve and upstream)
         "gpt-5",
+        "gpt-5.1",
+        "gpt-5.2",
         "gpt-5-mini",
     },
     "reasoning_summary": {
@@ -113,8 +121,10 @@ FEATURE_SUPPORT = {
         "o3-pro",
         "o3-deep-research",
         "o4-mini-deep-research",
-        # >>> GPT-5：If your upstream/account supports summary, add it
+        # >>> GPT-5 family：If your upstream/account supports summary, add it
         "gpt-5",
+        "gpt-5.1",
+        "gpt-5.2",
         "gpt-5-mini",
     },
     "deep_research": {

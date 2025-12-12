@@ -5,6 +5,11 @@ All notable changes to the OpenAI Responses Manifold pipeline are documented in 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.31] - 2025-12-12
+- Added GPT-5.1 and GPT-5.2 to supported Responses feature sets.
+- Improved upstream error readability with centralized `APIException`.
+- Mapped `max_completion_tokens` to `max_output_tokens` and hardened message transformation for non-string assistant/developer content.
+
 ## [0.8.30] - 2025-09-06
 - Checked `status` and `incomplete_details` to surface OpenAI content-filter errors.
 - Finalized status indicators via `finish()` before emitting errors.
