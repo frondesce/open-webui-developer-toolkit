@@ -1,6 +1,7 @@
 # Limit conversation context per user
 
 Filter for Open WebUI that clips conversation context per user (by ID or email).
+Limit counts only context messages and excludes the current message.
 
 ## Features
 
@@ -9,6 +10,7 @@ Filter for Open WebUI that clips conversation context per user (by ID or email).
 - Priority: **id → email**.
 - Fallback to `default_max_messages`.
 - Optionally keep the first `system` message.
+- `limit=0` keeps only the current message (plus `system` if enabled).
 
 ## Key Settings (Valves)
 
@@ -33,6 +35,7 @@ Copy `user_map_context_clip_filter.py` to Open WebUI under **Admin ▸ Filters**
 # 按用户限制上下文消息条数
 
 这是一个 Open WebUI 的 Filter 插件，用于根据用户 **ID / Email** 对上下文消息进行裁剪。
+limit 只统计“上下文消息数”，不包含当前消息。
 
 ## 功能
 
@@ -41,6 +44,7 @@ Copy `user_map_context_clip_filter.py` to Open WebUI under **Admin ▸ Filters**
 - 匹配优先级：**id → email**。
 - 未命中用户使用 `default_max_messages`。
 - 可选始终保留第一条 `system` 消息。
+- `limit=0` 时仅保留当前消息（如果启用 `keep_system` 则加上 system）。
 
 ## 核心配置（Valves）
 
@@ -59,4 +63,3 @@ Copy `user_map_context_clip_filter.py` to Open WebUI under **Admin ▸ Filters**
 ```
 
 将 `user_map_context_clip_filter.py` 上传到 Open WebUI 的 **Admin ▸ Filters** 即可启用。
-

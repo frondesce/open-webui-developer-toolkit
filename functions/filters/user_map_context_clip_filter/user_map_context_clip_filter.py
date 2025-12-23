@@ -2,7 +2,7 @@
 title: Limit conversation context per user
 id: user_map_context_clip_filter
 author: gpt-5.1
-version: 0.7.1
+version: 0.7.2
 description: Limit context messages by admin-defined per-user map, with admin users unlimited.
 """
 
@@ -19,7 +19,7 @@ class Filter:
 
         default_max_messages: int = Field(
             default=2,
-            description="默认最大保留消息数（未匹配到用户时使用，消息条数）。",
+            description="默认最大保留上下文消息数（不含当前消息，按消息条数）。",
         )
 
         keep_system: bool = Field(
@@ -30,6 +30,7 @@ class Filter:
             default="{}",
             description=(
                 "管理员配置：用户上限映射表（JSON）。key 可用 email 或 user id。\n"
+                "数值表示保留的上下文消息数（不含当前消息，按消息条数）。\n"
                 "示例：\n"
                 '{"test@abc.com":16,"c162258a-e1d3-48e3-8bfb-e513b1f15e83":8}'
             ),
@@ -73,7 +74,7 @@ class Filter:
             for k, v in data.items():
                 try:
                     n = int(v)
-                    if n > 0:
+                    if n >= 0:
                         out[str(k)] = n
                 except Exception:
                     continue
@@ -130,23 +131,27 @@ class Filter:
 
         # ---------- 有限制 ----------
         else:
+            if limit < 0:
+                limit = 0
+            # limit 表示携带的上下文消息数，不包含当前消息
+            desired = max(limit + 1, 1)
             if system_prompt:
                 non_system = [
                     m
                     for m in messages
                     if m is not system_prompt and m.get("role") != "system"
                 ]
-                clipped = non_system[-limit:]
+                clipped = non_system[-desired:]
                 new_messages = [system_prompt] + clipped
             else:
-                new_messages = messages[-limit:]
+                new_messages = messages[-desired:]
 
         body["messages"] = new_messages
         after = len(new_messages)
 
         if self.valves.debug_logging:
             try:
-                print("\n[UserMapContextClipFilter DEBUG v0.7.1]")
+                print("\n[UserMapContextClipFilter DEBUG v0.7.2]")
                 if isinstance(current_user, dict):
                     print(
                         "  user:",
@@ -166,4 +171,3 @@ class Filter:
                 pass
 
         return body
-
