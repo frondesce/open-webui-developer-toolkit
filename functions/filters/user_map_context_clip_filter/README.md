@@ -29,6 +29,7 @@ Limit counts only context messages and excludes the current message.
 ```
 
 Copy `user_map_context_clip_filter.py` to Open WebUI under **Admin ▸ Filters** to enable.
+Repo helper: `check_json.py` validates JSON input and flags tabs/non-ASCII characters.
 
 ---
 
