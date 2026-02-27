@@ -4,6 +4,10 @@ All notable changes to the User Map Context Clip Filter are documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-27
+- Add frontend `notification` toast when context clipping occurs.
+- Switch `inlet` to async to support event emission.
+
 ## [0.7.2] - 2025-12-23
 - Change limit semantics to count only context messages (current message excluded).
 - Allow `0` in user limits to mean "no context".

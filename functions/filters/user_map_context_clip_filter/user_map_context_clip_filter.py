@@ -2,11 +2,11 @@
 title: Limit conversation context per user
 id: user_map_context_clip_filter
 author: gpt-5.1
-version: 0.7.2
+version: 0.8.0
 description: Limit context messages by admin-defined per-user map, with admin users unlimited.
 """
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Callable, Awaitable
 from pydantic import BaseModel, Field
 import json
 
@@ -105,8 +105,12 @@ class Filter:
         # 3️⃣ 未命中，走默认
         return self.valves.default_max_messages
 
-    def inlet(
-        self, body: dict, __user__: Optional[dict] = None, user: Optional[dict] = None
+    async def inlet(
+        self,
+        body: dict,
+        __user__: Optional[dict] = None,
+        user: Optional[dict] = None,
+        __event_emitter__: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
     ) -> dict:
         messages = body.get("messages", [])
         if not messages:
@@ -148,10 +152,28 @@ class Filter:
 
         body["messages"] = new_messages
         after = len(new_messages)
+        clipped_count = max(before - after, 0)
+
+        if clipped_count > 0 and __event_emitter__:
+            try:
+                await __event_emitter__(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "type": "warning",
+                            "content": (
+                                f"上下文已自动裁剪（删除 {clipped_count} 条历史消息）。"
+                                "新话题建议新开对话。"
+                            ),
+                        },
+                    }
+                )
+            except Exception:
+                pass
 
         if self.valves.debug_logging:
             try:
-                print("\n[UserMapContextClipFilter DEBUG v0.7.2]")
+                print("\n[UserMapContextClipFilter DEBUG v0.8.0]")
                 if isinstance(current_user, dict):
                     print(
                         "  user:",
@@ -166,6 +188,7 @@ class Filter:
                     limit if limit is not None else "UNLIMITED (admin)",
                 )
                 print("  messages before:", before, "after:", after)
+                print("  clipped count:", clipped_count)
                 print("[UserMapContextClipFilter DEBUG END]\n")
             except Exception:
                 pass

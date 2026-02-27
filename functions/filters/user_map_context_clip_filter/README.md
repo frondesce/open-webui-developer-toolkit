@@ -10,6 +10,7 @@ Limit counts only context messages and excludes the current message.
 - Priority: **id → email**.
 - Fallback to `default_max_messages`.
 - Optionally keep the first `system` message.
+- Shows a frontend toast notification when clipping is applied.
 - `limit=0` keeps only the current message (plus `system` if enabled).
 
 ## Key Settings (Valves)
@@ -45,6 +46,7 @@ limit 只统计“上下文消息数”，不包含当前消息。
 - 匹配优先级：**id → email**。
 - 未命中用户使用 `default_max_messages`。
 - 可选始终保留第一条 `system` 消息。
+- 发生裁剪时，会在前端显示 toast 通知。
 - `limit=0` 时仅保留当前消息（如果启用 `keep_system` 则加上 system）。
 
 ## 核心配置（Valves）
