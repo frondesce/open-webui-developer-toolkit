@@ -27,6 +27,7 @@ export const mobile = writable(false);
 
 export const socket: Writable<null | Socket> = writable(null);
 export const activeUserIds: Writable<null | string[]> = writable(null);
+export const activeChatIds: Writable<Set<string>> = writable(new Set());
 export const USAGE_POOL: Writable<null | string[]> = writable(null);
 
 export const theme = writable('system');
@@ -65,6 +66,7 @@ export const models: Writable<Model[]> = writable([]);
 export const prompts: Writable<null | Prompt[]> = writable(null);
 export const knowledge: Writable<null | Document[]> = writable(null);
 export const tools = writable(null);
+export const skills = writable(null);
 export const functions = writable(null);
 
 export const toolServers = writable([]);
@@ -74,6 +76,8 @@ export const banners: Writable<Banner[]> = writable([]);
 export const settings: Writable<Settings> = writable({});
 
 export const audioQueue = writable(null);
+
+export const sidebarWidth = writable(260);
 
 export const showSidebar = writable(false);
 export const showSearch = writable(false);
@@ -201,6 +205,7 @@ type Settings = {
 	splitLargeDeltas?: boolean;
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
+	renderMarkdownInPreviews?: boolean;
 
 	system?: string;
 	seed?: number;
@@ -271,9 +276,11 @@ type Config = {
 		enable_admin_export: boolean;
 		enable_admin_chat_access: boolean;
 		enable_community_sharing: boolean;
+		enable_memories: boolean;
 		enable_autocomplete_generation: boolean;
 		enable_direct_connections: boolean;
 		enable_version_update_check: boolean;
+		folder_max_file_count?: number;
 	};
 	oauth: {
 		providers: {
@@ -282,7 +289,7 @@ type Config = {
 	};
 	ui?: {
 		pending_user_overlay_title?: string;
-		pending_user_overlay_description?: string;
+		pending_user_overlay_content?: string;
 	};
 };
 

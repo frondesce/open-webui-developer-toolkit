@@ -54,6 +54,7 @@
 
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
+	import SyncStatsModal from '$lib/components/chat/Settings/SyncStatsModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { getUserSettings } from '$lib/apis/users';
 	import dayjs from 'dayjs';
@@ -89,6 +90,9 @@
 	let tokenTimer = null;
 
 	let showRefresh = false;
+
+	let showSyncStatsModal = false;
+	let syncStatsEventData = null;
 
 	let heartbeatInterval = null;
 
@@ -325,6 +329,14 @@
 	const chatEventHandler = async (event, cb) => {
 		const chat = $page.url.pathname.includes(`/c/${event.chat_id}`);
 
+		// Skip events from temporary chats that are not the current chat.
+		// This prevents notifications from being sent to other tabs/devices
+		// for privacy, since temporary chats are not meant to be persisted or visible elsewhere.
+		const isTemporaryChat = event.chat_id?.startsWith('local:');
+		if (isTemporaryChat && event.chat_id !== $chatId) {
+			return;
+		}
+
 		let isFocused = document.visibilityState !== 'visible';
 		if (window.electronAPI) {
 			const res = await window.electronAPI.send({
@@ -342,6 +354,7 @@
 		if ((event.chat_id !== $chatId && !$temporaryChatEnabled) || isFocused) {
 			if (type === 'chat:completion') {
 				const { done, content, title } = data;
+				const displayTitle = title || $i18n.t('New Chat');
 
 				if (done) {
 					if ($settings?.notificationSoundAlways ?? false) {
@@ -356,7 +369,7 @@
 
 					if ($isLastActiveTab) {
 						if ($settings?.notificationEnabled ?? false) {
-							new Notification(`${title} • Open WebUI`, {
+							new Notification(`${displayTitle} • Open WebUI`, {
 								body: content,
 								icon: `${WEBUI_BASE_URL}/static/favicon.png`
 							});
@@ -369,7 +382,7 @@
 								goto(`/c/${event.chat_id}`);
 							},
 							content: content,
-							title: title
+							title: displayTitle
 						},
 						duration: 15000,
 						unstyled: true
@@ -487,12 +500,19 @@
 
 		// handle channel created event
 		if (event.data?.type === 'channel:created') {
-			await channels.set(
-				(await getChannels(localStorage.token)).sort(
-					(a, b) =>
-						['', null, 'group', 'dm'].indexOf(a.type) - ['', null, 'group', 'dm'].indexOf(b.type)
-				)
-			);
+			const res = await getChannels(localStorage.token).catch(async (error) => {
+				return null;
+			});
+
+			if (res) {
+				await channels.set(
+					res.sort(
+						(a, b) =>
+							['', null, 'group', 'dm'].indexOf(a.type) - ['', null, 'group', 'dm'].indexOf(b.type)
+					)
+				);
+			}
+
 			return;
 		}
 
@@ -531,13 +551,19 @@
 						})
 					);
 				} else {
-					await channels.set(
-						(await getChannels(localStorage.token)).sort(
-							(a, b) =>
-								['', null, 'group', 'dm'].indexOf(a.type) -
-								['', null, 'group', 'dm'].indexOf(b.type)
-						)
-					);
+					const res = await getChannels(localStorage.token).catch(async (error) => {
+						return null;
+					});
+
+					if (res) {
+						await channels.set(
+							res.sort(
+								(a, b) =>
+									['', null, 'group', 'dm'].indexOf(a.type) -
+									['', null, 'group', 'dm'].indexOf(b.type)
+							)
+						);
+					}
 				}
 			}
 
@@ -587,7 +613,24 @@
 		}
 	};
 
+	const windowMessageEventHandler = async (event) => {
+		if (
+			!['https://openwebui.com', 'https://www.openwebui.com', 'http://localhost:9999'].includes(
+				event.origin
+			)
+		) {
+			return;
+		}
+
+		if (event.data === 'export:stats' || event.data?.type === 'export:stats') {
+			syncStatsEventData = event.data;
+			showSyncStatsModal = true;
+		}
+	};
+
 	onMount(async () => {
+		window.addEventListener('message', windowMessageEventHandler);
+
 		let touchstartY = 0;
 
 		function isNavOrDescendant(el) {
@@ -595,12 +638,12 @@
 			return nav && (el === nav || nav.contains(el));
 		}
 
-		document.addEventListener('touchstart', (e) => {
+		const touchstartHandler = (e) => {
 			if (!isNavOrDescendant(e.target)) return;
 			touchstartY = e.touches[0].clientY;
-		});
+		};
 
-		document.addEventListener('touchmove', (e) => {
+		const touchmoveHandler = (e) => {
 			if (!isNavOrDescendant(e.target)) return;
 			const touchY = e.touches[0].clientY;
 			const touchDiff = touchY - touchstartY;
@@ -608,15 +651,19 @@
 				showRefresh = true;
 				e.preventDefault();
 			}
-		});
+		};
 
-		document.addEventListener('touchend', (e) => {
+		const touchendHandler = (e) => {
 			if (!isNavOrDescendant(e.target)) return;
 			if (showRefresh) {
 				showRefresh = false;
 				location.reload();
 			}
-		});
+		};
+
+		document.addEventListener('touchstart', touchstartHandler);
+		document.addEventListener('touchmove', touchmoveHandler, { passive: false });
+		document.addEventListener('touchend', touchendHandler);
 
 		if (typeof window !== 'undefined') {
 			if (window.applyTheme) {
@@ -801,9 +848,27 @@
 			loaded = true;
 		}
 
+		// Auto-show SyncStatsModal when opened with ?sync=true (from community)
+		if (
+			(window.opener ?? false) &&
+			$page.url.searchParams.get('sync') === 'true' &&
+			($config?.features?.enable_community_sharing ?? false)
+		) {
+			showSyncStatsModal = true;
+		}
+
 		return () => {
 			window.removeEventListener('resize', onResize);
+			window.removeEventListener('message', windowMessageEventHandler);
+			document.removeEventListener('touchstart', touchstartHandler);
+			document.removeEventListener('touchmove', touchmoveHandler);
+			document.removeEventListener('touchend', touchendHandler);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
+	});
+
+	onDestroy(() => {
+		bc.close();
 	});
 </script>
 
@@ -840,6 +905,10 @@
 	{:else}
 		<slot />
 	{/if}
+{/if}
+
+{#if $config?.features.enable_community_sharing}
+	<SyncStatsModal bind:show={showSyncStatsModal} eventData={syncStatsEventData} />
 {/if}
 
 <Toaster
