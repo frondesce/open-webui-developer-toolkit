@@ -2,8 +2,9 @@
 title: Limit conversation context per user
 id: user_map_context_clip_filter
 author: gpt-5.1
-version: 0.8.0
-description: Limit context messages by admin-defined per-user map, with admin users unlimited.
+modify: gpt-5.4
+version: 0.9.0
+description: Limit context rounds by admin-defined per-user map, keeping tool blocks intact.
 """
 
 from typing import Optional, Any, Dict, Callable, Awaitable
@@ -19,7 +20,7 @@ class Filter:
 
         default_max_messages: int = Field(
             default=2,
-            description="默认最大保留上下文消息数（不含当前消息，按消息条数）。",
+            description="默认最大保留上下文轮次（不含当前轮，按 user turn 计算）。",
         )
 
         keep_system: bool = Field(
@@ -30,7 +31,7 @@ class Filter:
             default="{}",
             description=(
                 "管理员配置：用户上限映射表（JSON）。key 可用 email 或 user id。\n"
-                "数值表示保留的上下文消息数（不含当前消息，按消息条数）。\n"
+                "数值表示保留的上下文轮次（不含当前轮，按 user turn 计算）。\n"
                 "示例：\n"
                 '{"test@abc.com":16,"c162258a-e1d3-48e3-8bfb-e513b1f15e83":8}'
             ),
@@ -42,6 +43,37 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
+
+    # ---------- 将消息按“轮次”分组 ----------
+    def _group_messages_into_rounds(self, messages: list[dict]) -> list[list[dict]]:
+        """
+        按 user turn 对消息分组。
+
+        规则：
+        - 遇到 user 消息时开启一个新 round
+        - 后续 assistant / tool 等消息都归入该 round
+        - 这样 assistant(tool_calls) + tool + assistant final 会被视为一个整体
+        """
+        rounds: list[list[dict]] = []
+        current_round: list[dict] = []
+
+        for message in messages:
+            role = message.get("role")
+
+            if role == "user":
+                if current_round:
+                    rounds.append(current_round)
+                current_round = [message]
+            else:
+                if not current_round:
+                    current_round = [message]
+                else:
+                    current_round.append(message)
+
+        if current_round:
+            rounds.append(current_round)
+
+        return rounds
 
     # ---------- user 解析 ----------
     def _resolve_current_user(
@@ -137,22 +169,46 @@ class Filter:
         else:
             if limit < 0:
                 limit = 0
-            # limit 表示携带的上下文消息数，不包含当前消息
-            desired = max(limit + 1, 1)
+
             if system_prompt:
                 non_system = [
                     m
                     for m in messages
                     if m is not system_prompt and m.get("role") != "system"
                 ]
-                clipped = non_system[-desired:]
-                new_messages = [system_prompt] + clipped
             else:
-                new_messages = messages[-desired:]
+                non_system = [m for m in messages if m.get("role") != "system"]
+
+            rounds = self._group_messages_into_rounds(non_system)
+
+            if not rounds:
+                new_messages = [system_prompt] if system_prompt else []
+            else:
+                current_round = rounds[-1]
+                context_rounds = rounds[:-1]
+                kept_context_rounds = context_rounds[-limit:] if limit > 0 else []
+
+                clipped = [
+                    message
+                    for round_messages in [*kept_context_rounds, current_round]
+                    for message in round_messages
+                ]
+
+                new_messages = [system_prompt] + clipped if system_prompt else clipped
 
         body["messages"] = new_messages
         after = len(new_messages)
         clipped_count = max(before - after, 0)
+        rounds_before = len(
+            self._group_messages_into_rounds(
+                [m for m in messages if m.get("role") != "system"]
+            )
+        )
+        rounds_after = len(
+            self._group_messages_into_rounds(
+                [m for m in new_messages if m.get("role") != "system"]
+            )
+        )
 
         if clipped_count > 0 and __event_emitter__:
             try:
@@ -162,7 +218,7 @@ class Filter:
                         "data": {
                             "type": "warning",
                             "content": (
-                                f"上下文已自动裁剪（删除 {clipped_count} 条历史消息）。"
+                                f"上下文已自动裁剪（删除 {clipped_count} 条历史消息，保留最近 {rounds_after} 个轮次）。"
                                 "新话题建议新开对话。"
                             ),
                         },
@@ -173,7 +229,7 @@ class Filter:
 
         if self.valves.debug_logging:
             try:
-                print("\n[UserMapContextClipFilter DEBUG v0.8.0]")
+                print("\n[UserMapContextClipFilter DEBUG v0.9.0]")
                 if isinstance(current_user, dict):
                     print(
                         "  user:",
@@ -188,6 +244,7 @@ class Filter:
                     limit if limit is not None else "UNLIMITED (admin)",
                 )
                 print("  messages before:", before, "after:", after)
+                print("  rounds before:", rounds_before, "after:", rounds_after)
                 print("  clipped count:", clipped_count)
                 print("[UserMapContextClipFilter DEBUG END]\n")
             except Exception:
