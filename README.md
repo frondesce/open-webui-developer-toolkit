@@ -1,3 +1,14 @@
+> [!WARNING]
+> **Deprecated / No longer maintained**
+>
+> This plugin is no longer maintained because Open WebUI now provides
+> equivalent functionality natively.
+>
+> Users of current Open WebUI versions should use the built-in implementation
+> instead of installing this plugin.
+>
+> This repository is preserved for historical reference only.
+
 # Open-WebUI Developer Toolkit
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-Repository-blue?logo=github)](https://github.com/open-webui/open-webui)
 [![License MIT](https://img.shields.io/github/license/jrkropp/open-webui-developer-toolkit?color=blue)](LICENSE)
